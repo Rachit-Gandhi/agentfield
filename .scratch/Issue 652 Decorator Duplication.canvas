@@ -1,0 +1,240 @@
+{
+  "nodes": [
+    {
+      "id": "issue-note",
+      "type": "text",
+      "text": "## Issue #652\n\n**Duplication:** `Agent.reasoner`, `Agent.skill`, `AgentRouter`, and `decorators.reasoner` each wrap functions with overlapping metadata logic.\n\n**Fix:** extract a mixin tested in isolation.",
+      "x": -500,
+      "y": 40,
+      "width": 300,
+      "height": 160,
+      "color": "3"
+    },
+    {
+      "id": "decorators-reasoner",
+      "type": "text",
+      "text": "## reasoner() — standalone\n`sdk/python/agentfield/decorators.py:94`\n\n- Exported via `agentfield.__init__`\n- No FastAPI route registration\n- Stamps `_is_reasoner`, triggers, tags\n- Wrapper calls `_execute_with_tracking`\n- Supports `@on_event` / `@on_schedule` sugar",
+      "x": -500,
+      "y": 220,
+      "width": 300,
+      "height": 220,
+      "color": "6"
+    },
+    {
+      "id": "agent-reasoner",
+      "type": "text",
+      "text": "## Agent.reasoner()\n`sdk/python/agentfield/agent.py:1834`\n\n- Re-implements trigger merge + accepts_webhook\n- Builds `/reasoners/{id}` FastAPI endpoint\n- Runtime validation via `_validate_handler_input`\n- Stores `ReasonerEntry` in `_reasoner_registry`\n- Returns `tracked_func` for direct calls",
+      "x": -500,
+      "y": 500,
+      "width": 300,
+      "height": 240,
+      "color": "2"
+    },
+    {
+      "id": "agent-skill",
+      "type": "text",
+      "text": "## Agent.skill()\n`sdk/python/agentfield/agent.py:2733`\n\n- Near-copy of reasoner: type hints, endpoint, validation\n- Builds `/skills/{id}` FastAPI endpoint\n- Stores `SkillEntry` in `_skill_registry`\n- Returns async/sync `tracked_callable`\n- HTTP path handles workflow + DID inline",
+      "x": -500,
+      "y": 860,
+      "width": 300,
+      "height": 220,
+      "color": "2"
+    },
+    {
+      "id": "router-reasoner",
+      "type": "text",
+      "text": "## AgentRouter.reasoner()\n`sdk/python/agentfield/router.py:30`\n\n- Deferred registration — appends to `router.reasoners`\n- Lazy wrapper delegates to `_tracked_functions`\n- Merges router-level tags\n- No schema / endpoint creation here",
+      "x": -500,
+      "y": 1180,
+      "width": 300,
+      "height": 200,
+      "color": "4"
+    },
+    {
+      "id": "router-skill",
+      "type": "text",
+      "text": "## AgentRouter.skill()\n`sdk/python/agentfield/router.py:94`\n\n- Appends to `router.skills` list\n- Returns original func (no wrapper)\n- Tag merge mirrors reasoner path\n- Actual registration deferred to `include_router`",
+      "x": -500,
+      "y": 1420,
+      "width": 300,
+      "height": 180,
+      "color": "4"
+    },
+    {
+      "id": "direct-reg-detect",
+      "type": "text",
+      "text": "## Dup #1: @decorator vs @decorator()\n4 sites — same pattern\n\n- `inspect.isfunction(path|tags)` → direct reg\n- Copies in Agent.reasoner, Agent.skill\n- Copies in AgentRouter.reasoner, AgentRouter.skill\n- decorators.reasoner uses `func is None` branch",
+      "x": -80,
+      "y": 300,
+      "width": 300,
+      "height": 200,
+      "color": "3"
+    },
+    {
+      "id": "trigger-merge",
+      "type": "text",
+      "text": "## Dup #2: Trigger + accepts_webhook\n`decorators.py:166` · `agent.py:1876`\n\n- Read `_pending_triggers` from sugar\n- Merge with explicit `triggers=[...]`\n- Stamp `code_origin` on bindings\n- Resolve `accepts_webhook` (True / False / \"warn\")\n- Logic duplicated verbatim in both reasoner entry points",
+      "x": -80,
+      "y": 520,
+      "width": 300,
+      "height": 220,
+      "color": "3"
+    },
+    {
+      "id": "type-hint-schema",
+      "type": "text",
+      "text": "## Dup #3: Type-hint → input_fields\n`agent.py:1910` · `agent.py:2858`\n\n- `get_type_hints` + `inspect.signature`\n- Skip `self`, `execution_context`\n- Build `(type, default)` tuples per param\n- Return type → output schema\n- Identical loop in reasoner and skill decorators",
+      "x": -80,
+      "y": 780,
+      "width": 300,
+      "height": 200,
+      "color": "3"
+    },
+    {
+      "id": "fastapi-endpoint",
+      "type": "text",
+      "text": "## Dup #4: @self.post endpoint\n`agent.py:1941` · `agent.py:2882`\n\n- Parse JSON body, 400 on invalid\n- Webhook envelope detection (`event` + `_meta`)\n- `_validate_handler_input` → 422\n- Pydantic arg conversion via `convert_function_args`\n- Workflow notify start/complete/error\n- ~200 lines duplicated between reasoner & skill",
+      "x": -80,
+      "y": 1020,
+      "width": 320,
+      "height": 240,
+      "color": "3"
+    },
+    {
+      "id": "reasoner-registry",
+      "type": "text",
+      "text": "## _reasoner_registry\n`agent.py:2104`\n\n- `ReasonerEntry` with func, types, tags\n- VC overrides + trigger bindings\n- `reasoners` property generates legacy metadata",
+      "x": 340,
+      "y": 500,
+      "width": 280,
+      "height": 180,
+      "color": "5"
+    },
+    {
+      "id": "skill-registry",
+      "type": "text",
+      "text": "## _skill_registry\n`agent.py:3101`\n\n- `SkillEntry` — parallel shape to reasoner\n- VC overrides per skill_id\n- `skills` property for registration export",
+      "x": 340,
+      "y": 860,
+      "width": 280,
+      "height": 180,
+      "color": "5"
+    },
+    {
+      "id": "tracked-func-wrap",
+      "type": "text",
+      "text": "## tracked_func / tracked_callable\n`agent.py:2051` · `agent.py:3114`\n\n- Replaces module-level function reference\n- `workflow_handler.replace_function_references`\n- Reasoner: branches on `get_current_context()`\n- Skill: child context + notify_call_* for direct calls",
+      "x": 340,
+      "y": 640,
+      "width": 300,
+      "height": 200,
+      "color": "6"
+    },
+    {
+      "id": "include-router",
+      "type": "text",
+      "text": "## Agent.include_router()\n`sdk/python/agentfield/agent.py:3235`\n\n- `router._attach_agent(self)`\n- Resolves paths via `_combine_path`\n- Calls `self.reasoner(...)(func)` per entry\n- Calls `self.skill(...)(func)` per entry\n- Populates `router._tracked_functions`",
+      "x": 340,
+      "y": 1180,
+      "width": 300,
+      "height": 220,
+      "color": "6"
+    },
+    {
+      "id": "router-lazy-wrap",
+      "type": "text",
+      "text": "## Router reasoner wrapper\n`router.py:61`\n\n- At call time: lookup `_tracked_functions[name]`\n- Delegates to Agent's tracked_func after include\n- Fallback: raw func if not yet registered",
+      "x": 340,
+      "y": 1420,
+      "width": 280,
+      "height": 180,
+      "color": "6"
+    },
+    {
+      "id": "mixin-target",
+      "type": "text",
+      "text": "## Proposed mixin (#652)\n\nExtract shared decorator factory: direct-reg detection, tag merge, trigger/accepts_webhook resolution, type-hint schema build, optional FastAPI endpoint builder.\n\n`Agent` + `AgentRouter` compose mixin; `decorators.reasoner` uses tracking-only slice. Enables unit tests without full `Agent(FastAPI)`.",
+      "x": 780,
+      "y": 40,
+      "width": 340,
+      "height": 200,
+      "color": "3"
+    },
+    {
+      "id": "decorators-tracking",
+      "type": "text",
+      "text": "## _execute_with_tracking()\n`decorators.py:276`\n\n- ExecutionContext child/root\n- DID + VC generation\n- Pydantic arg conversion\n- notify_call_start/complete/error",
+      "x": 780,
+      "y": 220,
+      "width": 280,
+      "height": 180,
+      "color": "5"
+    },
+    {
+      "id": "fork-label",
+      "type": "text",
+      "text": "**if get_current_context()**",
+      "x": 780,
+      "y": 480,
+      "width": 200,
+      "height": 50,
+      "color": "5"
+    },
+    {
+      "id": "workflow-tracking",
+      "type": "text",
+      "text": "## workflow_handler.execute_with_tracking\n`agent.py:2072`\n\n- Used when no decorator context exists\n- Direct `app.reasoner_fn()` calls from Agent\n- weakref to workflow_handler avoids cycles",
+      "x": 780,
+      "y": 560,
+      "width": 300,
+      "height": 180,
+      "color": "5"
+    },
+    {
+      "id": "http-endpoint-exec",
+      "type": "text",
+      "text": "## HTTP endpoint execution\n`agent.py` endpoint closures\n\n- Reasoner: `_execute_reasoner_endpoint` + async callback path\n- Skill: inline execution in endpoint closure\n- Both: ExecutionContext.from_request, DID, VC\n- Cancel support via `register_execution_task` (reasoner)\n- Second duplication layer — endpoint bodies diverge but share skeleton",
+      "x": 780,
+      "y": 900,
+      "width": 360,
+      "height": 240,
+      "color": "2"
+    }
+  ],
+  "edges": [
+    { "id": "e1", "fromNode": "issue-note", "fromSide": "bottom", "toNode": "agent-reasoner", "toSide": "top", "color": "3" },
+    { "id": "e2", "fromNode": "issue-note", "fromSide": "bottom", "toNode": "router-reasoner", "toSide": "top", "color": "3" },
+    { "id": "e3", "fromNode": "issue-note", "fromSide": "bottom", "toNode": "decorators-reasoner", "toSide": "top", "color": "3" },
+    { "id": "e4", "fromNode": "decorators-reasoner", "fromSide": "right", "toNode": "direct-reg-detect", "toSide": "left", "color": "6" },
+    { "id": "e5", "fromNode": "agent-reasoner", "fromSide": "right", "toNode": "direct-reg-detect", "toSide": "left", "color": "3" },
+    { "id": "e6", "fromNode": "agent-skill", "fromSide": "right", "toNode": "direct-reg-detect", "toSide": "left", "color": "3" },
+    { "id": "e7", "fromNode": "router-reasoner", "fromSide": "right", "toNode": "direct-reg-detect", "toSide": "left", "color": "3" },
+    { "id": "e8", "fromNode": "router-skill", "fromSide": "right", "toNode": "direct-reg-detect", "toSide": "left", "color": "3" },
+    { "id": "e9", "fromNode": "decorators-reasoner", "fromSide": "right", "toNode": "trigger-merge", "toSide": "left", "color": "3" },
+    { "id": "e10", "fromNode": "agent-reasoner", "fromSide": "right", "toNode": "trigger-merge", "toSide": "left", "color": "3" },
+    { "id": "e11", "fromNode": "agent-reasoner", "fromSide": "right", "toNode": "type-hint-schema", "toSide": "left", "color": "3" },
+    { "id": "e12", "fromNode": "agent-skill", "fromSide": "right", "toNode": "type-hint-schema", "toSide": "left", "color": "3" },
+    { "id": "e13", "fromNode": "agent-reasoner", "fromSide": "right", "toNode": "fastapi-endpoint", "toSide": "left" },
+    { "id": "e14", "fromNode": "agent-skill", "fromSide": "right", "toNode": "fastapi-endpoint", "toSide": "left" },
+    { "id": "e15", "fromNode": "agent-reasoner", "fromSide": "right", "toNode": "reasoner-registry", "toSide": "left" },
+    { "id": "e16", "fromNode": "agent-skill", "fromSide": "right", "toNode": "skill-registry", "toSide": "left" },
+    { "id": "e17", "fromNode": "agent-reasoner", "fromSide": "right", "toNode": "tracked-func-wrap", "toSide": "left" },
+    { "id": "e18", "fromNode": "agent-skill", "fromSide": "right", "toNode": "tracked-func-wrap", "toSide": "left" },
+    { "id": "e19", "fromNode": "router-reasoner", "fromSide": "right", "toNode": "router-lazy-wrap", "toSide": "left" },
+    { "id": "e20", "fromNode": "router-reasoner", "fromSide": "right", "toNode": "include-router", "toSide": "left" },
+    { "id": "e21", "fromNode": "router-skill", "fromSide": "right", "toNode": "include-router", "toSide": "left" },
+    { "id": "e22", "fromNode": "include-router", "fromSide": "left", "toNode": "agent-reasoner", "toSide": "right", "color": "5" },
+    { "id": "e23", "fromNode": "include-router", "fromSide": "left", "toNode": "agent-skill", "toSide": "right", "color": "5" },
+    { "id": "e24", "fromNode": "include-router", "fromSide": "bottom", "toNode": "router-lazy-wrap", "toSide": "top" },
+    { "id": "e25", "fromNode": "router-lazy-wrap", "fromSide": "right", "toNode": "tracked-func-wrap", "toSide": "bottom", "color": "6" },
+    { "id": "e26", "fromNode": "tracked-func-wrap", "fromSide": "right", "toNode": "fork-label", "toSide": "left", "color": "5" },
+    { "id": "e27", "fromNode": "fork-label", "fromSide": "top", "toNode": "decorators-tracking", "toSide": "bottom", "color": "5" },
+    { "id": "e28", "fromNode": "fork-label", "fromSide": "bottom", "toNode": "workflow-tracking", "toSide": "top", "color": "5" },
+    { "id": "e29", "fromNode": "decorators-reasoner", "fromSide": "right", "toNode": "decorators-tracking", "toSide": "left" },
+    { "id": "e30", "fromNode": "fastapi-endpoint", "fromSide": "right", "toNode": "http-endpoint-exec", "toSide": "left" },
+    { "id": "e31", "fromNode": "direct-reg-detect", "fromSide": "right", "toNode": "mixin-target", "toSide": "left", "color": "3" },
+    { "id": "e32", "fromNode": "trigger-merge", "fromSide": "right", "toNode": "mixin-target", "toSide": "bottom", "color": "3" },
+    { "id": "e33", "fromNode": "type-hint-schema", "fromSide": "right", "toNode": "mixin-target", "toSide": "bottom", "color": "3" },
+    { "id": "e34", "fromNode": "fastapi-endpoint", "fromSide": "right", "toNode": "mixin-target", "toSide": "bottom", "color": "6" }
+  ]
+}

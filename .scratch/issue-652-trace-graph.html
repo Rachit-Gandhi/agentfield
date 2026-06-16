@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Issue #652 — Reasoner/Skill Decorator Duplication Trace</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #171b24;
+      --surface-2: #1e2430;
+      --border: #2a3344;
+      --text: #e6edf7;
+      --muted: #8b9bb4;
+      --accent: #6ea8fe;
+      --accent-2: #79c0ff;
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #151a24 0%, var(--bg) 55%);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      flex-shrink: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+      background: rgba(15, 17, 23, 0.92);
+      border-bottom: 1px solid var(--border);
+      padding: 0.85rem 1.25rem;
+    }
+
+    header h1 { margin: 0 0 0.2rem; font-size: 1.1rem; font-weight: 650; }
+    header p { margin: 0; color: var(--muted); font-size: 0.82rem; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      margin-top: 0.65rem;
+    }
+
+    .toolbar button {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+
+    .toolbar button:hover {
+      border-color: var(--accent);
+      background: rgba(110, 168, 254, 0.12);
+    }
+
+    .hint { font-size: 0.75rem; color: var(--muted); }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.85rem;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .viewport {
+      flex: 1;
+      overflow: auto;
+      cursor: grab;
+      background:
+        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0);
+      background-size: 24px 24px;
+    }
+
+    .viewport.panning { cursor: grabbing; }
+
+    .graph {
+      position: relative;
+      width: 2200px;
+      height: 1700px;
+      margin: 0;
+    }
+
+    svg.edges {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+      z-index: 0;
+    }
+
+    .edge {
+      fill: none;
+      stroke: #4a5d78;
+      stroke-width: 2;
+      marker-end: url(#arrow);
+    }
+
+    .edge.decision { stroke-dasharray: 7 5; stroke: #6ea8fe; marker-end: url(#arrow-blue); }
+    .edge.error { stroke-dasharray: 5 4; stroke: #f85149; marker-end: url(#arrow-red); }
+    .edge.issue { stroke: #ff7b72; stroke-width: 2.5; marker-end: url(#arrow-issue); }
+    .edge.dep { stroke-dasharray: 3 4; stroke: #a371f7; opacity: 0.85; marker-end: url(#arrow-purple); }
+
+    .draggable {
+      position: absolute;
+      z-index: 1;
+      touch-action: none;
+    }
+
+    .draggable.dragging { z-index: 50; opacity: 0.97; }
+
+    .node {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      width: 280px;
+    }
+
+    .node.wide { width: 300px; }
+    .node.xwide { width: 400px; }
+
+    .node.issue-highlight {
+      border-color: rgba(255, 123, 114, 0.65);
+      box-shadow: 0 0 0 1px rgba(255, 123, 114, 0.25), var(--shadow);
+    }
+
+    .drag-handle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px 12px 0 0;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .drag-handle:active { cursor: grabbing; }
+    .drag-handle .grip { color: var(--muted); font-size: 0.85rem; letter-spacing: 2px; }
+
+    .node-body { padding: 0.75rem 0.9rem 0.9rem; }
+
+    .node .tag {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.12rem 0.4rem;
+      border-radius: 999px;
+    }
+
+    .node h3 { margin: 0 0 0.3rem; font-size: 0.92rem; line-height: 1.25; }
+
+    .node .file {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    .node ul {
+      margin: 0.45rem 0 0;
+      padding-left: 1rem;
+      font-size: 0.76rem;
+      color: #c9d4e5;
+    }
+
+    .node li { margin: 0.12rem 0; }
+
+    .tag.router { background: rgba(63, 185, 80, 0.15); color: #7ee787; }
+    .tag.handler { background: rgba(210, 153, 34, 0.15); color: #e3b341; }
+    .tag.gateway { background: rgba(163, 113, 247, 0.15); color: #d2a8ff; }
+    .tag.decode { background: rgba(247, 120, 186, 0.15); color: #ff9bce; }
+    .tag.request { background: rgba(88, 166, 255, 0.15); color: #79c0ff; }
+    .tag.stream { background: rgba(86, 212, 221, 0.15); color: #56d4dd; }
+    .tag.nonstream { background: rgba(255, 166, 87, 0.15); color: #ffb86c; }
+    .tag.note { background: rgba(139, 155, 180, 0.15); color: #c9d4e5; }
+
+    .fork-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent);
+      background: rgba(110, 168, 254, 0.12);
+      border: 1px solid rgba(110, 168, 254, 0.35);
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .fork-label:active { cursor: grabbing; }
+
+    .note {
+      width: 300px;
+      background: rgba(30, 36, 48, 0.96);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      line-height: 1.45;
+      overflow: hidden;
+    }
+
+    .note .drag-handle { border-radius: 10px 10px 0 0; padding: 0.35rem 0.65rem; }
+    .note-body { padding: 0.65rem 0.75rem 0.75rem; }
+    .note strong { color: var(--text); }
+    .note.wide { width: 340px; }
+
+    footer {
+      flex-shrink: 0;
+      text-align: center;
+      padding: 0.45rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      border-top: 1px solid var(--border);
+      background: rgba(15, 17, 23, 0.92);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Issue #652 — Python SDK reasoner/skill decorator duplication</h1>
+    <p>decorators.reasoner → Agent.reasoner/skill → AgentRouter → include_router → tracking fork</p>
+    <div class="toolbar">
+      <div class="legend">
+        <span><i class="dot" style="background:#3fb950"></i> Router</span>
+        <span><i class="dot" style="background:#d29922"></i> Handler</span>
+        <span><i class="dot" style="background:#a371f7"></i> Gateway</span>
+        <span><i class="dot" style="background:#f778ba"></i> Decode (dup)</span>
+        <span><i class="dot" style="background:#58a6ff"></i> Registry</span>
+        <span><i class="dot" style="background:#56d4dd"></i> Tracking</span>
+        <span><i class="dot" style="background:#ffa657"></i> HTTP exec</span>
+        <span><i class="dot" style="background:#ff7b72"></i> #652 focus</span>
+      </div>
+      <span class="hint">Drag node headers · lines follow · pan on empty canvas · layout auto-saves</span>
+      <button type="button" id="reset-layout">Reset layout</button>
+      <button type="button" id="fit-view">Fit to view</button>
+    </div>
+  </header>
+
+  <div class="viewport" id="viewport">
+    <div class="graph" id="graph">
+      <svg class="edges" id="edges-svg">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#4a5d78" />
+          </marker>
+          <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#6ea8fe" />
+          </marker>
+          <marker id="arrow-red" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#f85149" />
+          </marker>
+          <marker id="arrow-issue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#ff7b72" />
+          </marker>
+          <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#a371f7" />
+          </marker>
+        </defs>
+        <g id="edges-group"></g>
+      </svg>
+
+      <div class="draggable note" id="issue-note" data-x="60" data-y="40">
+        <div class="drag-handle"><span class="tag note">Issue</span><span class="grip">⠿</span></div>
+        <div class="note-body">
+          <strong>#652 — duplication:</strong><br />
+          <code>Agent.reasoner</code>, <code>Agent.skill</code>, <code>AgentRouter</code>, and <code>decorators.reasoner</code> each implement overlapping wrapper/metadata logic. Proposed fix: extract a mixin tested in isolation.
+        </div>
+      </div>
+
+      <div class="draggable node" id="decorators-reasoner" data-x="60" data-y="220">
+        <div class="drag-handle"><span class="tag gateway">Module</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>reasoner() — standalone</h3>
+          <div class="file">sdk/python/agentfield/decorators.py:94</div>
+          <ul>
+            <li>Exported via <code>agentfield.__init__</code></li>
+            <li>No FastAPI route registration</li>
+            <li>Stamps <code>_is_reasoner</code>, triggers, tags</li>
+            <li>Wrapper calls <code>_execute_with_tracking</code></li>
+            <li>Supports <code>@on_event</code> / <code>@on_schedule</code> sugar</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node wide" id="agent-reasoner" data-x="60" data-y="500">
+        <div class="drag-handle"><span class="tag handler">Agent</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>Agent.reasoner()</h3>
+          <div class="file">sdk/python/agentfield/agent.py:1834</div>
+          <ul>
+            <li>Re-implements trigger merge + accepts_webhook</li>
+            <li>Builds <code>/reasoners/{id}</code> FastAPI endpoint</li>
+            <li>Runtime validation via <code>_validate_handler_input</code></li>
+            <li>Stores <code>ReasonerEntry</code> in <code>_reasoner_registry</code></li>
+            <li>Returns <code>tracked_func</code> for direct calls</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node wide" id="agent-skill" data-x="60" data-y="860">
+        <div class="drag-handle"><span class="tag handler">Agent</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>Agent.skill()</h3>
+          <div class="file">sdk/python/agentfield/agent.py:2733</div>
+          <ul>
+            <li>Near-copy of reasoner: type hints, endpoint, validation</li>
+            <li>Builds <code>/skills/{id}</code> FastAPI endpoint</li>
+            <li>Stores <code>SkillEntry</code> in <code>_skill_registry</code></li>
+            <li>Returns async/sync <code>tracked_callable</code></li>
+            <li>HTTP path handles workflow + DID inline</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node" id="router-reasoner" data-x="60" data-y="1180">
+        <div class="drag-handle"><span class="tag router">Router</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>AgentRouter.reasoner()</h3>
+          <div class="file">sdk/python/agentfield/router.py:30</div>
+          <ul>
+            <li>Deferred registration — appends to <code>router.reasoners</code></li>
+            <li>Lazy wrapper delegates to <code>_tracked_functions</code></li>
+            <li>Merges router-level tags</li>
+            <li>No schema / endpoint creation here</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node" id="router-skill" data-x="60" data-y="1420">
+        <div class="drag-handle"><span class="tag router">Router</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>AgentRouter.skill()</h3>
+          <div class="file">sdk/python/agentfield/router.py:94</div>
+          <ul>
+            <li>Appends to <code>router.skills</code> list</li>
+            <li>Returns original func (no wrapper)</li>
+            <li>Tag merge mirrors reasoner path</li>
+            <li>Actual registration deferred to <code>include_router</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node issue-highlight" id="direct-reg-detect" data-x="480" data-y="300">
+        <div class="drag-handle"><span class="tag decode">Dup #1</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>@decorator vs @decorator()</h3>
+          <div class="file">4 sites — same pattern</div>
+          <ul>
+            <li><code>inspect.isfunction(path|tags)</code> → direct reg</li>
+            <li>Copies in Agent.reasoner, Agent.skill</li>
+            <li>Copies in AgentRouter.reasoner, AgentRouter.skill</li>
+            <li>decorators.reasoner uses <code>func is None</code> branch</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node issue-highlight" id="trigger-merge" data-x="480" data-y="520">
+        <div class="drag-handle"><span class="tag decode">Dup #2</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>Trigger + accepts_webhook merge</h3>
+          <div class="file">decorators.py:166 · agent.py:1876</div>
+          <ul>
+            <li>Read <code>_pending_triggers</code> from sugar</li>
+            <li>Merge with explicit <code>triggers=[...]</code></li>
+            <li>Stamp <code>code_origin</code> on bindings</li>
+            <li>Resolve <code>accepts_webhook</code> (True / False / "warn")</li>
+            <li>Logic duplicated verbatim in both reasoner entry points</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node issue-highlight" id="type-hint-schema" data-x="480" data-y="780">
+        <div class="drag-handle"><span class="tag decode">Dup #3</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>Type-hint → input_fields</h3>
+          <div class="file">agent.py:1910 · agent.py:2858</div>
+          <ul>
+            <li><code>get_type_hints</code> + <code>inspect.signature</code></li>
+            <li>Skip <code>self</code>, <code>execution_context</code></li>
+            <li>Build <code>(type, default)</code> tuples per param</li>
+            <li>Return type → output schema</li>
+            <li>Identical loop in reasoner and skill decorators</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node wide issue-highlight" id="fastapi-endpoint" data-x="480" data-y="1020">
+        <div class="drag-handle"><span class="tag router">Dup #4</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>@self.post endpoint closure</h3>
+          <div class="file">agent.py:1941 · agent.py:2882</div>
+          <ul>
+            <li>Parse JSON body, 400 on invalid</li>
+            <li>Webhook envelope detection (<code>event</code> + <code>_meta</code>)</li>
+            <li><code>_validate_handler_input</code> → 422</li>
+            <li>Pydantic arg conversion via <code>convert_function_args</code></li>
+            <li>Workflow notify start/complete/error</li>
+            <li>~200 lines duplicated between reasoner &amp; skill</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node" id="reasoner-registry" data-x="920" data-y="500">
+        <div class="drag-handle"><span class="tag request">Registry</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>_reasoner_registry</h3>
+          <div class="file">agent.py:2104</div>
+          <ul>
+            <li><code>ReasonerEntry</code> with func, types, tags</li>
+            <li>VC overrides + trigger bindings</li>
+            <li><code>reasoners</code> property generates legacy metadata</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node" id="skill-registry" data-x="920" data-y="860">
+        <div class="drag-handle"><span class="tag request">Registry</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>_skill_registry</h3>
+          <div class="file">agent.py:3101</div>
+          <ul>
+            <li><code>SkillEntry</code> — parallel shape to reasoner</li>
+            <li>VC overrides per skill_id</li>
+            <li><code>skills</code> property for registration export</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node wide" id="tracked-func-wrap" data-x="920" data-y="640">
+        <div class="drag-handle"><span class="tag gateway">Wrapper</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>tracked_func / tracked_callable</h3>
+          <div class="file">agent.py:2051 · agent.py:3114</div>
+          <ul>
+            <li>Replaces module-level function reference</li>
+            <li><code>workflow_handler.replace_function_references</code></li>
+            <li>Reasoner: branches on <code>get_current_context()</code></li>
+            <li>Skill: child context + notify_call_* for direct calls</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node wide" id="include-router" data-x="920" data-y="1180">
+        <div class="drag-handle"><span class="tag gateway">Bridge</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>Agent.include_router()</h3>
+          <div class="file">sdk/python/agentfield/agent.py:3235</div>
+          <ul>
+            <li><code>router._attach_agent(self)</code></li>
+            <li>Resolves paths via <code>_combine_path</code></li>
+            <li>Calls <code>self.reasoner(...)(func)</code> per entry</li>
+            <li>Calls <code>self.skill(...)(func)</code> per entry</li>
+            <li>Populates <code>router._tracked_functions</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node" id="router-lazy-wrap" data-x="920" data-y="1420">
+        <div class="drag-handle"><span class="tag gateway">Lazy</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>Router reasoner wrapper</h3>
+          <div class="file">router.py:61</div>
+          <ul>
+            <li>At call time: lookup <code>_tracked_functions[name]</code></li>
+            <li>Delegates to Agent's tracked_func after include</li>
+            <li>Fallback: raw func if not yet registered</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable note wide" id="mixin-target" data-x="1360" data-y="40">
+        <div class="drag-handle"><span class="tag note">Plan</span><span class="grip">⠿</span></div>
+        <div class="note-body">
+          <strong>Proposed mixin (issue #652):</strong><br />
+          Extract shared decorator factory: direct-reg detection, tag merge, trigger/accepts_webhook resolution, type-hint schema build, optional FastAPI endpoint builder. <code>Agent</code> + <code>AgentRouter</code> compose mixin; <code>decorators.reasoner</code> uses tracking-only slice. Enables unit tests without full <code>Agent(FastAPI)</code>.
+        </div>
+      </div>
+
+      <div class="draggable node" id="decorators-tracking" data-x="1360" data-y="220">
+        <div class="drag-handle"><span class="tag stream">Tracking</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>_execute_with_tracking()</h3>
+          <div class="file">decorators.py:276</div>
+          <ul>
+            <li>ExecutionContext child/root</li>
+            <li>DID + VC generation</li>
+            <li>Pydantic arg conversion</li>
+            <li>notify_call_start/complete/error</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable fork-label" id="fork-label" data-x="1360" data-y="480">if get_current_context()</div>
+
+      <div class="draggable node wide" id="workflow-tracking" data-x="1360" data-y="560">
+        <div class="drag-handle"><span class="tag stream">Tracking</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>workflow_handler.execute_with_tracking</h3>
+          <div class="file">agent.py:2072</div>
+          <ul>
+            <li>Used when no decorator context exists</li>
+            <li>Direct <code>app.reasoner_fn()</code> calls from Agent</li>
+            <li>weakref to workflow_handler avoids cycles</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="draggable node xwide" id="http-endpoint-exec" data-x="1360" data-y="900">
+        <div class="drag-handle"><span class="tag nonstream">HTTP</span><span class="grip">⠿</span></div>
+        <div class="node-body">
+          <h3>HTTP endpoint execution</h3>
+          <div class="file">agent.py endpoint closures</div>
+          <ul>
+            <li>Reasoner: <code>_execute_reasoner_endpoint</code> + async callback path</li>
+            <li>Skill: inline execution in endpoint closure</li>
+            <li>Both: ExecutionContext.from_request, DID, VC</li>
+            <li>Cancel support via <code>register_execution_task</code> (reasoner)</li>
+            <li>Second duplication layer — endpoint bodies diverge but share skeleton</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Living doc for issue #652 · edges redraw on drag · Obsidian canvas in .scratch/</footer>
+
+  <script>
+    (function () {
+      const STORAGE_KEY = 'issue652-trace-graph-positions-v1';
+      const graph = document.getElementById('graph');
+      const viewport = document.getElementById('viewport');
+      const edgesGroup = document.getElementById('edges-group');
+      const draggables = () => graph.querySelectorAll('.draggable');
+
+      const EDGES = [
+        { from: 'issue-note', to: 'agent-reasoner', type: 'issue' },
+        { from: 'issue-note', to: 'router-reasoner', type: 'issue' },
+        { from: 'issue-note', to: 'decorators-reasoner', type: 'issue' },
+
+        { from: 'decorators-reasoner', to: 'direct-reg-detect', type: 'dep' },
+        { from: 'agent-reasoner', to: 'direct-reg-detect', type: 'issue' },
+        { from: 'agent-skill', to: 'direct-reg-detect', type: 'issue' },
+        { from: 'router-reasoner', to: 'direct-reg-detect', type: 'issue' },
+        { from: 'router-skill', to: 'direct-reg-detect', type: 'issue' },
+
+        { from: 'decorators-reasoner', to: 'trigger-merge', type: 'issue' },
+        { from: 'agent-reasoner', to: 'trigger-merge', type: 'issue' },
+
+        { from: 'agent-reasoner', to: 'type-hint-schema', type: 'issue' },
+        { from: 'agent-skill', to: 'type-hint-schema', type: 'issue' },
+
+        { from: 'agent-reasoner', to: 'fastapi-endpoint', type: 'flow' },
+        { from: 'agent-skill', to: 'fastapi-endpoint', type: 'flow' },
+
+        { from: 'agent-reasoner', to: 'reasoner-registry', type: 'flow' },
+        { from: 'agent-skill', to: 'skill-registry', type: 'flow' },
+        { from: 'agent-reasoner', to: 'tracked-func-wrap', type: 'flow' },
+        { from: 'agent-skill', to: 'tracked-func-wrap', type: 'flow' },
+
+        { from: 'router-reasoner', to: 'router-lazy-wrap', type: 'flow' },
+        { from: 'router-reasoner', to: 'include-router', type: 'flow' },
+        { from: 'router-skill', to: 'include-router', type: 'flow' },
+
+        { from: 'include-router', to: 'agent-reasoner', type: 'decision' },
+        { from: 'include-router', to: 'agent-skill', type: 'decision' },
+        { from: 'include-router', to: 'router-lazy-wrap', type: 'flow' },
+        { from: 'router-lazy-wrap', to: 'tracked-func-wrap', type: 'dep' },
+
+        { from: 'tracked-func-wrap', to: 'fork-label', type: 'decision' },
+        { from: 'fork-label', to: 'decorators-tracking', type: 'decision' },
+        { from: 'fork-label', to: 'workflow-tracking', type: 'decision' },
+        { from: 'decorators-reasoner', to: 'decorators-tracking', type: 'flow' },
+
+        { from: 'fastapi-endpoint', to: 'http-endpoint-exec', type: 'flow' },
+
+        { from: 'direct-reg-detect', to: 'mixin-target', type: 'issue' },
+        { from: 'trigger-merge', to: 'mixin-target', type: 'issue' },
+        { from: 'type-hint-schema', to: 'mixin-target', type: 'issue' },
+        { from: 'fastapi-endpoint', to: 'mixin-target', type: 'dep' },
+      ];
+
+      const defaults = {};
+      draggables().forEach(el => {
+        defaults[el.id] = {
+          x: parseFloat(el.dataset.x) || 0,
+          y: parseFloat(el.dataset.y) || 0,
+        };
+      });
+
+      function getNode(id) { return document.getElementById(id); }
+
+      function nodeRect(el) {
+        return {
+          x: parseFloat(el.dataset.x) || 0,
+          y: parseFloat(el.dataset.y) || 0,
+          w: el.offsetWidth,
+          h: el.offsetHeight,
+        };
+      }
+
+      function anchor(rect, side) {
+        switch (side) {
+          case 'top': return { x: rect.x + rect.w / 2, y: rect.y };
+          case 'bottom': return { x: rect.x + rect.w / 2, y: rect.y + rect.h };
+          case 'left': return { x: rect.x, y: rect.y + rect.h / 2 };
+          case 'right': return { x: rect.x + rect.w, y: rect.y + rect.h / 2 };
+          default: return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+        }
+      }
+
+      function pickSides(fromRect, toRect) {
+        const dx = (toRect.x + toRect.w / 2) - (fromRect.x + fromRect.w / 2);
+        const dy = (toRect.y + toRect.h / 2) - (fromRect.y + fromRect.h / 2);
+        if (Math.abs(dx) > Math.abs(dy)) {
+          return dx > 0 ? { from: 'right', to: 'left' } : { from: 'left', to: 'right' };
+        }
+        return dy > 0 ? { from: 'bottom', to: 'top' } : { from: 'top', to: 'bottom' };
+      }
+
+      function bezierPath(p1, p2, fromSide, toSide) {
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const offset = Math.min(120, Math.max(40, dist * 0.35));
+        const cp1 = { ...p1 }, cp2 = { ...p2 };
+        if (fromSide === 'bottom') cp1.y += offset;
+        if (fromSide === 'top') cp1.y -= offset;
+        if (fromSide === 'right') cp1.x += offset;
+        if (fromSide === 'left') cp1.x -= offset;
+        if (toSide === 'bottom') cp2.y += offset;
+        if (toSide === 'top') cp2.y -= offset;
+        if (toSide === 'right') cp2.x += offset;
+        if (toSide === 'left') cp2.x -= offset;
+        return `M ${p1.x} ${p1.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${p2.x} ${p2.y}`;
+      }
+
+      function redrawEdges() {
+        edgesGroup.innerHTML = '';
+        EDGES.forEach(({ from, to, type }) => {
+          const fromEl = getNode(from);
+          const toEl = getNode(to);
+          if (!fromEl || !toEl) return;
+          const fromRect = nodeRect(fromEl);
+          const toRect = nodeRect(toEl);
+          const sides = pickSides(fromRect, toRect);
+          const p1 = anchor(fromRect, sides.from);
+          const p2 = anchor(toRect, sides.to);
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', bezierPath(p1, p2, sides.from, sides.to));
+          path.setAttribute('class', 'edge' + (type ? ' ' + type : ''));
+          edgesGroup.appendChild(path);
+        });
+      }
+
+      function applyPosition(el, x, y) {
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.dataset.x = String(x);
+        el.dataset.y = String(y);
+        redrawEdges();
+      }
+
+      function loadPositions() {
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (_) {}
+        draggables().forEach(el => {
+          const pos = saved[el.id] || defaults[el.id] || { x: 0, y: 0 };
+          el.style.left = pos.x + 'px';
+          el.style.top = pos.y + 'px';
+          el.dataset.x = String(pos.x);
+          el.dataset.y = String(pos.y);
+        });
+        redrawEdges();
+      }
+
+      function savePositions() {
+        const positions = {};
+        draggables().forEach(el => {
+          positions[el.id] = {
+            x: parseFloat(el.dataset.x) || 0,
+            y: parseFloat(el.dataset.y) || 0,
+          };
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
+      }
+
+      function resetLayout() {
+        localStorage.removeItem(STORAGE_KEY);
+        draggables().forEach(el => {
+          const pos = defaults[el.id];
+          applyPosition(el, pos.x, pos.y);
+        });
+        fitView();
+      }
+
+      function fitView() {
+        let minX = Infinity, minY = Infinity;
+        draggables().forEach(el => {
+          minX = Math.min(minX, parseFloat(el.dataset.x) || 0);
+          minY = Math.min(minY, parseFloat(el.dataset.y) || 0);
+        });
+        viewport.scrollTo({ left: Math.max(0, minX - 40), top: Math.max(0, minY - 40), behavior: 'smooth' });
+      }
+
+      let active = null, startX = 0, startY = 0, originX = 0, originY = 0;
+
+      graph.addEventListener('pointerdown', (e) => {
+        const handle = e.target.closest('.drag-handle, .fork-label');
+        if (!handle) return;
+        const el = handle.closest('.draggable');
+        if (!el) return;
+        e.preventDefault();
+        e.stopPropagation();
+        active = el;
+        active.classList.add('dragging');
+        startX = e.clientX;
+        startY = e.clientY;
+        originX = parseFloat(active.dataset.x) || 0;
+        originY = parseFloat(active.dataset.y) || 0;
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (!active) return;
+        applyPosition(active, originX + (e.clientX - startX), originY + (e.clientY - startY));
+      });
+
+      window.addEventListener('pointerup', () => {
+        if (!active) return;
+        active.classList.remove('dragging');
+        active = null;
+        savePositions();
+      });
+
+      let panning = false, panStartX = 0, panStartY = 0, scrollLeft = 0, scrollTop = 0;
+      viewport.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.draggable')) return;
+        panning = true;
+        viewport.classList.add('panning');
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollLeft = viewport.scrollLeft;
+        scrollTop = viewport.scrollTop;
+      });
+      window.addEventListener('pointermove', (e) => {
+        if (!panning) return;
+        viewport.scrollLeft = scrollLeft - (e.clientX - panStartX);
+        viewport.scrollTop = scrollTop - (e.clientY - panStartY);
+      });
+      window.addEventListener('pointerup', () => {
+        panning = false;
+        viewport.classList.remove('panning');
+      });
+
+      document.getElementById('reset-layout').addEventListener('click', resetLayout);
+      document.getElementById('fit-view').addEventListener('click', fitView);
+
+      loadPositions();
+      window.addEventListener('resize', redrawEdges);
+      requestAnimationFrame(fitView);
+    })();
+  </script>
+</body>
+</html>
